@@ -49,58 +49,55 @@
       $o_4$   & $\{w_3,w_8,w_9,w_9\}$ & $o_8$&$\{w_3,w_3,w_6\}$\\
       \end{tabular}
 \end{table}
-  
-
-
-
-
-
-
 
 \section{系统设计}
 
 本节首先介绍一种分布式的索引结构，并基于此结构实现一种简单的查询算法。然后介绍基于此设计的一些改进以及相应的新的查询算法。
 
-\subsection{分布式R树}
+\subsection{索引结构}
 
-对于空间数据索引，首选的结构就是R树。但是传统的R树是基于单机的，没有考虑分布式计算的需求，故我们对R树做了一些改进，使其支持了分布式环境。
-分布式R树的基本思想是将R树的节点与物理计算节点对应，即R树的一个节点存放在一个物理计算节点上。父节点所在的物理计算节点记录其所有子节点所包含的在的物理计算节点。
+对于空间数据索引，首选的结构就是R树。
+但是传统的R树是基于单机的，没有考虑分布式计算的需求，这里我们介绍一种分布式的R树 [1] ，可以满足并行计算的要求。
 
-\subsubsection{内结点保存内容}
+\subsubsection{MC-R树}
+
+MC-R树是一种分布式的多维数据索引结构，它将物理计算节点分为两类：
 
 \begin{itemize}
 
-    \item 本节点的MBR
-
-    \item 子节点MBR集
-
-    \item 每个子节点MBR对应的物理节点
+    \item Master节点：保存全局索引信息。Master维护着一个\verb|<MBR, client_id>|的列表以及在其上的R树索引，用于将查询转发到相应的Client节点；
+    
+    \item Client节点：负责保存局部索引以及数据。Client节点保存实际的数据分块以及在这些数据上建立的局部R树索引；
     
 \end{itemize}
 
-\subsubsection{叶节点保存内容}
+\begin{figure}[!ht]
+    \centering
+    \includegraphics[width=0.6\textwidth]{figure/MC-Rtree.png}
+    \caption{MC-R树的结构，其中三角形表示物理节点，四边形表示数据}
+\end{figure}
+
+\noindent MC-R树的建立过程如下：
 
 \begin{itemize}
-
-    \item 本节点的MBR
     
-    \item 在本区域出现的关键字列表，其中的项为形似\verb|<t, t.entries, t.freq>|的三元组，其中\verb|t|表示关键字，\verb|t.entries|为形似\verb|<loc, freq>|的二元组集合，表示\verb|t|出现的位置及在该位置出现的次数，\verb|t.freq|表示\verb|t|出现的总次数。
-
+    \item[1.] 数据划分：Master节点将导入的按照特定的划分算法数据划分为G组，每一组最多M个数据。其中M是每一个物理节点能保存的最大数据量；
+    
+    \item[2.] 数据分配：数据划分完成后，将每一组数据分配给一个Client节点，并将该次分配产生的\verb|<MBR, client_id>|二元组添加到列表中；
+  
+    \item[3.] 建立全局索引：Master将数据分配到Client节点后，在分配过程中产生的\verb|<MBR, client_id>|列表上建立R树索引；
+    
+    \item[4.] 建立局部索引：收到数据的Client节点将数据保存到本地磁盘，然后在这些数据上建立局部R树索引。
+ 
 \end{itemize}
 
-\subsection{索引创建}
-
-在向索引集群导入数据的过程中，自动根据数据创建索引，具体过程如下：
+\noindent 对于数据的划分，这里给出两种比较典型的多维数据划分算法：
 
 \begin{itemize}
     
-    \item[1.] 初始只有一个根节点服务器；
+    \item Hilbert packing算法：将所有的数据(超立方体)按照它们的中心到希尔伯特曲线起点的距离进行排序，然后将排序结果等距离的划分为G段即可。
     
-    \item[2.] 当数据量小于阈值$\delta$时，直接在根节点服务器上保存，即根服务器就作为唯一的叶节点；
-    
-    \item[3.] 当数据量大于等于阈值$\delta$时，向集群管理器申请新的多个新的计算节点，将数据按空间区域进行划分，并将划分后的数据分配到新申请的节点中，在本节点只保存划分信息；
-    
-    \item[4.] 
+    \item Sort-Tile-Recursive(STR)算法：对于n个k维的数据(超立方体)，首先确定需要划分成的份数$G = \lceil \frac{n}{M} \rceil$。接下来将这些超立方体按照它们中心的第一维坐标进行排序，将排序结果等距离地分为$S = \lceil G^{\frac{1}{k}} \rceil$份，然后递归的对每一份的$k - 1$维坐标进行处理，最终得到划分结果。
 
 \end{itemize}
 
