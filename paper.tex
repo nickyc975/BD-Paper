@@ -171,13 +171,73 @@ MC-R树是一种分布式的多维数据索引结构，它将物理计算节点�
 
 \end{itemize}
 
-\subsection{查询算法}
+\subsection{查询优化}
 
-基于以上的MC-R树索引结构，我们设计如下的分布式空间top-k频繁关键字查询算法：
+分析以上基于MC-R树的查询过程可以发现，直接将Client的查询结果返回给Master汇总的处理方式存在以下两个比较明显的问题：
 
-\subsubsection{数据结构定义}
+\begin{itemize}
 
+    \item Master负载过重：由于所有查询结果都需要交给Master进行汇总，当查询数量过多时Master将成为整个系统的性能瓶颈；
+    
+    \item 对于每个查询，Master需要维护查询到的所有关键字的出现次数，当关键字过多时，这将占据大量的资源，然而事实上用户可能只需要其中很小的一部分；
+    
+\end{itemize}
 
+\noindent 针对以上两个问题，我们引入了一些新的物理节点，减轻了Master的负载，并且避免了维护过多查询结果造成的资源浪费。
+
+\subsubsection{查询分配节点QueryMaster}
+
+QueryMaster是代替原来的Master直接与用户交互的节点。QueryMaster维护着编号依次为$0, 1, 2, ..., numQueryManagers - 1$的一组QueryManager，用户的查询发送到QueryMaster上，QueryMaster为该查询分配一个id，然后将该查询分配给编号为$id$ \% $numQueryManagers$的QueryManager。
+
+\subsubsection{查询管理集群QueryManagers}
+
+QueryManagers是一组用于管理用户查询的计算节点，每一个QueryManger负责维护一些查询请求，一个查询请求包括：
+
+\begin{itemize}
+
+    \item 查询id：由QueryMaster分配，用于标识一个查询请求；
+    
+    \item 查询$<R_Q, k>$：用户提交的查询；
+    
+    \item 一个容量为$k$的小根堆Heap：用于统计出top-k；
+    
+    \item 负责该次查询的Client列表；
+    
+    \item 负责该次查询的Aggregator列表；
+    
+\end{itemize}
+
+\subsubsection{聚集集群Aggregators}
+
+Aggregators是一组专门负责聚集Client查询结果的计算节点。每一个Aggregator负责一些关键字的聚集，它从Client处接收\verb|<t, freq>|键值对，然后对所有Client发给它的键值对进行聚集，并将聚集结果的top-k发送给相应的QueryManager。
+
+\noindent 每个Aggregator维护着一系列形如\verb|<query_id, entries>|的键值对，其键为查询id，值为一系列形如\verb|<t, freq>|的键值对，表示在该查询中关键字t出现的次数。Client按照相同的格式发送查询结果给Aggregator，Aggregator按照如下算法进行聚集：
+
+\begin{algorithm}
+
+    \begin{algorithmic}[1]
+
+        \Require Aggregator $A$, Client发来的键值对$<query\_id, entries>$
+
+        \Function {aggregate}{$A, <query\_id, entries>$}
+            \If {$query\_id \in A.keys()$}
+                \State $originalEntries = A.get(query\_id)$
+                \For {$<t, freq>$ in $entries$}
+                    \If {$t \in originalEntries.keys()$}
+                        \State {$newFreq = freq + originalEntries.get(t)$}
+                        \State {$originalEntries.put(t, newFreq)$}
+                    \Else
+                        \State {$originalEntries.put(t, freq)$}
+                    \EndIf
+                \EndFor
+            \Else
+                \State {$A.put(query\_id, entries)$}
+            \EndIf
+        \EndFunction
+        
+    \end{algorithmic}
+    
+\end{algorithm}
 
 \section{工作流程}
 \subsection{请求过程}
