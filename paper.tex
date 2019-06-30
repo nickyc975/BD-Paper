@@ -25,7 +25,7 @@
 \end{table}
 
 \begin{abstract}
-    top-K频繁项查询一直是一个热门的研究方向,而随着互联网的社交的快速发展,空间top-k频繁项查询问题也有了很广泛的应用场景,并且由于数据量的爆炸性增长,单机运行的研究已经不能满足实际生产的需要.在这篇论文中,我们把问题定义为用户制定一个查询的空间和需要的项数k,由系统返回在这个空间中出现的最频繁的K个数据项,从原始数据的导入,存储,到查询检索等过程全部用分布式.为了解决这个问题,我们使用了一种分布式的多维数据索引结构MC-R树来存储和索引数据,这种结构适用于任意的数据规模.我们还针对此机构存在的性能问题进行结构性优化,使得整个系统可以同时应对大量查询请求,快速而准确的返回计算结果,并且具有良好的横向扩展性,能够灵活应对不同查询规模,不同的查询次数.
+    top-K频繁项查询一直是一个热门的研究方向,而随着互联网的社交的快速发展,空间top-k频繁项查询问题也有了很广泛的应用场景,并且由于数据量的爆炸性增长,单机运行的查询系统已经不能满足实际生产的需要。在这篇论文中,我们把问题定义为用户制定一个查询的空间和需要的项数k,由系统返回在这个空间中出现的最频繁的k个数据项，并且从原始数据的导入,存储,到查询检索等过程全部实现分布式计算.为了解决这个问题,我们使用了一种分布式的多维数据索引结构MC-R树来存储和索引数据,这种结构适用于任意的数据规模.我们还针对此结构存在的性能问题进行结构性优化,使得整个系统可以同时应对大量的查询请求,快速而准确的返回计算结果,并且具有良好的横向扩展性,能够灵活应对不同查询规模,不同的查询次数.
 \end{abstract}
 
 \section{问题描述}
@@ -141,7 +141,7 @@ MC-R树是一种分布式的多维数据索引结构，它将物理计算节点�
               \begin{algorithm}
 
                 \begin{algorithmic}[1]
-
+                    \caption{MC-R树叶节点查询算法}
                     \Require 叶节点$R$, 查询$Q$
                     \Ensure $R$中位于查询区域$Q.MBR$内的关键字及其出现次数
 
@@ -220,7 +220,7 @@ Aggregators是一组专门负责聚集Client查询结果的计算节点。每一
 \begin{algorithm}
 
     \begin{algorithmic}[1]
-
+        \caption{Aggregator聚集算法}
         \Require Aggregator $A$, Client发来的键值对$<query\_id, entries>$
 
         \Function {aggregate}{$A, <query\_id, entries>$}
@@ -268,27 +268,59 @@ Aggregators是一组专门负责聚集Client查询结果的计算节点。每一
 \section{工作流程}
 \subsection{查询集群QueryGroup}
 \begin{itemize}
-    \item[1.] 用户向查询集群QueryGroup的QueryMaster结点发送查询请求$q_i=<R_Q,k>$,并为这个请求编号为$q_i$,
-    \item[2.] QueryMaster根据QueryGroup中各QueryManager的负载情况,将查询q1分配给QueryManager $QM_j$
-    \item[3.] 结点$QM_j$收到这个查询请求后，为这个请求做相应的初始化工作,包括分配一个大小为K的小根堆MinHeap,分配一个查询结点队列QueryList(用于保存需要$QM_j$需要查询的IndexGroup的Client结点),分配一个AggregatorList(用于保存在此次查询中用到的Aggregator结点)
-    \item[4.] 由结点$QM_j$向索引R树(IndexGroup)的IndexMaster结点发送请求$q_i$,IndexMaster结点返回索引得到的Client结点,将这些Client结点添加进QueryList中
-    \item[5.] 结点$QM_j$向QueryList中的所有索引结点发送查询请求
-    \item[6.] 结点$QM_j$等待已请求的Client结点返回确认信息，其中包括了该Client节点需要的所有Aggregator结点，将这些Aggregator添加到AggregatorList中
-    \item[7.] 如果$QM_j$当收到QueryList所有中的Client结点发来的确认信息后,向AggregatorList中的所有Aggregator结点请求聚集结果
-    \item[8.] 结点$QM_j$收到Aggregator返回的聚集结果后，如果形如\verb|<t, t.freq>|,则根据其中的\verb|t.freq|作为排序依据,如果$t.freq > MinHeap$堆顶元素的\verb|freq|,则将记录添加进MinHeap中.否则不做处理
-    \item[9.] 如果结点$QM_j$收到了所有参与聚集任务的Aggregator发来的计算结果,则MinHeap中的所有关键词就是最终需要的结果
-    \item[10.] 结点$QM_j$将MinHeap中的所有结果进行汇总和封装,返回给用户
+    \item[1.] 用户向查询集群QueryGroup的QueryMaster结点发送查询请求$q_i=<R_Q,k>$，QueryMaster为这个请求编号为$q_i$；
+    \item[2.] QueryMaster根据QueryGroup中各QueryManager的负载情况，将查询$q_i$分配给某一QueryManager，假设为$QM_j$；
+    \item[3.] $QM_j$收到这个查询请求后，为这个请求做相应的初始化工作，包括创建一个容量为$k$的小根堆MinHeap，创建一个ClientList(用于保存需要$QM_j$需要查询的IndexGroup中的Client结点)，创建一个AggregatorList(用于保存在此次查询中用到的Aggregator结点)；
+    \item[4.] $QM_j$向MC-R树(IndexGroup)的IndexMaster结点发送请求$q_i$，IndexMaster返回查询得到的Client结点，$QM_j$将这些Client结点添加进QueryList中；
+    \item[5.] $QM_j$向QueryList中的所有Client发送查询请求；
+    \item[6.] $QM_j$等待已请求的Client结点返回确认信息，确认信息中包括了该Client节点需要的所有Aggregator结点。$QM_j$将这些Aggregator去重后添加到AggregatorList中；
+    \item[7.] 当$QM_j$收到QueryList所有中的Client结点发来的确认信息后，向AggregatorList中的所有Aggregator结点请求查询$q_i$的聚集结果；
+    \item[8.] 对于Aggregator发来的每一个聚集结果\verb|<query_id, entries>|，$QM_j$按照如下算法进行汇总：
+              \begin{algorithm}
+
+                \begin{algorithmic}[1]
+                    \caption{QueryManager汇总算法}
+                    \Require 一个聚集结果\verb|<query_id, entries>|
+
+                    \Function {combine}{$<query\_id, entries>$}
+                        \State $MinHeap = getMinHeapOf(query\_id)$
+                        \For {$entry$ in $entries$}
+                            \If {$!MinHeap.isFull()$}
+                                \State $MinHeap.insert(entry)$
+                            \Else
+                                \If {$entry.freq > MinHeap.top().freq$}
+                                    \State $MinHeap.pop()$
+                                    \State $MinHeap.insert(entry)$
+                                \EndIf
+                            \EndIf
+                        \EndFor
+                    \EndFunction
+                    
+                \end{algorithmic}
+                  
+              \end{algorithm} 
+    \item[9.] 如果$QM_j$收到了参与$q_i$查询的聚集任务的所有Aggregator发来的聚集结果，则MinHeap中的所有关键词就是最终需要的结果；
+    \item[10.] $QM_j$将MinHeap中的所有结果进行汇总和封装,返回给用户；
     \item[11.] 释放此次查询所占用的全部资源,包括MinHeap，QueryList，AggregatorList等；
 \end{itemize}
 \subsection{索引集群IndexGroup}
 \begin{itemize}
-    \item[1.] 对应于查询集群(QueryGroup)中的步骤4,在一个索引树(IndexGroup)的IndexMaster结点收到结点$QM_j$的查询请求后,根据请求中的查询区域$R_Q$,检索自己的已有的全局索引,得到相应记录所在的Client结点,将这些结点返回给结点$QM_j$.
-    \item[2.] 对应于查询集群(QueryGroup)中的步骤5,在一个索引树的Client节点收到结点$QM_j$的查询请求后,根据请求中的查询区域$R_Q$,根据局部索引,找到所有存储在自己结点的所有包含在区域$R_Q$中的记录\verb|<t, t.entries, t.freq>|,然后根据关键词t将具有相同关键词t的记录全部发向同一个计算结点$A_k$
-    \item[3.] 对应于查询集群(QueryGroup)中的步骤6,Client结点向Aggregator发送完查询结果后,再向QueryGroup的$QM_j$发送一个确认信息,表明自己已经完成查询结果的分发,消息中还包括自己已经发送的所有Aggregator结点id
+    \item[1.] 对应于查询集群(QueryGroup)中的步骤4，MC-R树(IndexGroup)中的IndexMaster结点收到结点$QM_j$的查询请求后，根据请求中的查询区域$R_Q$，检索自己的已有的全局索引，与查询区域相交的所有Client结点，将这些结点返回给结点$QM_j$；
+    \item[2.] 对应于查询集群(QueryGroup)中的步骤5，MC-R树(IndexGroup)中的Client节点收到结点$QM_j$的查询请求后，按照以下算法执行查询并将查询结果发送给AggregatorGroup：
+              \begin{itemize}
+
+                \item[(1).] 通过局部索引找到所有与查询区域$R_Q$相交的叶节点，然后按照{\bfseries 算法1 MC-R树叶节点查询算法}求出本节点中所有位于查询区域内的关键字及其出现次数;
+                
+                \item[(2).] 对于每一个\verb|<t, freq>|键值对，计算关键字\verb|t|的哈希值，根据哈希值为该键值对选择一个Aggregator，记录下选择的Aggregator；
+                
+                \item[(3).] 将需要发送给同一Aggregator的所有键值对组合成一个列表\verb|entries|，然后将键值对\verb|<query_id, entries>|发送给相应的Aggregator；
+                  
+              \end{itemize}
+    \item[3.] 对应于查询集群(QueryGroup)中的步骤6，Client结点向Aggregator发送完查询$q_i$的查询结果后，再将本次查询中用到的所有Aggregator去重后发送给$QM_j$，表明自己已经完成查询的分发；
 \end{itemize}
 \subsection{聚集集群AggregatorGroup}
 \begin{itemize}
-    \item[1.] 对应于索引集群(IndexGroup)中的步骤2,聚集结点$A_k$在收到来自索引树(IndexGroup)的叶子结点的所有记录后,根据\verb|<t, t.entries, t.freq>|将具有相同的关键词t的记录聚集在一起,将其出现频率\verb|t.freq|累加在一起,形成新的\verb|<t, t.entries, t.freq>|
-    \item[2.] 对应于查询集群(QueryGroup)中的步骤7,所有的$A_k$在计算完成后,立即将运算结果发送给负责此次查询的结点$QM_i$
+    \item[1.] 对应于索引集群(IndexGroup)中的步骤2，每个Aggregator按照{\bfseries 算法2 Aggregator聚集算法}对收到的查询结果进行聚集；
+    \item[2.] 对应于查询集群(QueryGroup)中的步骤7，每个Aggregator在收到$QM_j$的请求后，将属于查询$q_i$的聚集结果中的top-k发送给$QM_j$，并清空属于查询$q_i$的所有聚集结果；
 \end{itemize}
 \end{document}
