@@ -240,22 +240,29 @@ Aggregators是一组专门负责聚集Client查询结果的计算节点。每一
 \end{algorithm}
 
 \section{工作流程}
-\subsection{请求过程}
+\subsection{查询集群QueryGroup}
 \begin{itemize}
-    \item[1.] 用户向查询集群发送查询请求$<R_Q,k>$
-    \item[2.] 集群将此次请求的处理任务分配到查询集群的某个计算结点$N_i$上
-    \item[3.] 结点$N_i$收到这个查询请求后,为这个请求编号为$Q_j$,为这个请求做相应的初始化工作,包括分配一个大小为K的大根堆,分配一个查询结点队列QueryQueue(用于保存需要$N_i$需要查询的索引结点),这个队列中初始时只有索引R树的根节点
-    \item[4.] 向QueryQueue中的所有索引结点发送查询请求,然后在收到所有查询结点相应的响应后,将所有查询结点弹出QueryQueue,然后将响应中包含的新的查询结点加入QueryQueue
-    \item[5.] 重复步骤4,直到最终队列中只有索引树的叶结点时,直接向所有的索引树叶结点发送查询请求,之后保留QueryQueue不变
+    \item[1.] 用户向查询集群QueryGroup的QueryMaster结点发送查询请求$q_i=<R_Q,k>$,并为这个请求编号为$q_i$,
+    \item[2.] QueryMaster根据QueryGroup中各QueryManager的负载情况,将查询q1分配给QueryManager $QM_j$
+    \item[3.] 结点$QM_j$收到这个查询请求后,为这个请求做相应的初始化工作,包括分配一个大小为K的小根堆MinHeap,分配一个查询结点队列QueryList(用于保存需要$QM_j$需要查询的IndexGroup的Client结点),分配一个AggregatorList(用于保存在此次查询中用到的Aggregator结点)
+    \item[4.] 由结点$QM_j$向索引R树(IndexGroup)的IndexMaster结点发送请求$q_i$,IndexMaster结点返回索引得到的Client结点,将这些Client结点添加进QueryList中
+    \item[5.] 结点$QM_j$向QueryList中的所有索引结点发送查询请求
+    \item[6.] 结点$QM_j$等待已请求的Client结点返回一个确认信息,包括其需要的Aggregator结点,然后将其添加入AggregatorList中
+    \item[7.] 如果$QM_j$已经收到所有QueryList中的Client结点发来的确认信息后,向AggregatorList中的所有Aggregator结点发送启动计算命令
+    \item[8.] 结点$QM_j$等待参与聚集任务的Aggregator响应计算结果,如果有返回的结果,而且形如\verb|<t, t.entries, t.freq>|,则根据其中的\verb|t.freq|作为排序依据,如果$t.freq>MinHeap$的顶部记录,则将记录添加进MinHeap中.否则不做处理
+    \item[9.] 如果结点$QM_j$收到了所有参与聚集任务的Aggregator发来的计算结果,则MinHeap中的所有关键词就是最终需要的结果
+    \item[10.] 结点$QM_j$将MinHeap中的所有结果进行汇总和封装,返回给用户
+    \item[11.] 释放此次查询所占用的全部资源,包括MaxHeap,QueryQueue,负责汇总计算的所有$A_k$
 \end{itemize}
-\subsection{索引过程}
+\subsection{索引集群IndexGroup}
 \begin{itemize}
-    \item[1.] 对应于请求过程中的步骤4,在一个索引树的非叶子结点收到结点$N_i$的查询请求后,根据请求中的查询区域$R_Q$,检索自己的已有的索引,然后得到下一级索引记录所在的子索引树结点,将这些结点返回给结点$N_i$.
-    \item[2.] 对应于请求过程的步骤5,在一个索引树的叶子节点收到结点$N_i$的查询请求后,根据请求中的查询区域$R_Q$,找到所有存储在自己结点的所有包含在区域$R_Q$中的记录\verb|<t, t.entries, t.freq>|,然后根据关键词t将具有相同关键词t的记录全部发向同一个计算结点$C_k$
+    \item[1.] 对应于查询集群(QueryGroup)中的步骤4,在一个索引树(IndexGroup)的IndexMaster结点收到结点$QM_j$的查询请求后,根据请求中的查询区域$R_Q$,检索自己的已有的全局索引,得到相应记录所在的Client结点,将这些结点返回给结点$QM_j$.
+    \item[2.] 对应于查询集群(QueryGroup)中的步骤5,在一个索引树的Client节点收到结点$QM_j$的查询请求后,根据请求中的查询区域$R_Q$,根据局部索引,找到所有存储在自己结点的所有包含在区域$R_Q$中的记录\verb|<t, t.entries, t.freq>|,然后根据关键词t将具有相同关键词t的记录全部发向同一个计算结点$A_k$
+    \item[3.] 对应于查询集群(QueryGroup)中的步骤6,Client结点向Aggregator发送完查询结果后,再向QueryGroup的$QM_j$发送一个确认信息,表明自己已经完成查询结果的分发,包括自己已经发送的所有Aggregator结点ip
 \end{itemize}
-\subsection{计算过程}
+\subsection{聚集集群AggregatorGroup}
 \begin{itemize}
-    \item[1.] 对应于索引过程的步骤2,在收到来自索引树的叶子结点的所有记录后,根据\verb|<t, t.entries, t.freq>|将具有相同的关键词t的记录聚集在一起,将其出现频率\verb|t.freq|累加在一起
-    \item[2.] 
+    \item[1.] 对应于索引集群(IndexGroup)中的步骤2,聚集结点$A_k$在收到来自索引树(IndexGroup)的叶子结点的所有记录后,根据\verb|<t, t.entries, t.freq>|将具有相同的关键词t的记录聚集在一起,将其出现频率\verb|t.freq|累加在一起,形成新的\verb|<t, t.entries, t.freq>|
+    \item[2.] 对应于查询集群(QueryGroup)中的步骤7,所有的$A_k$在计算完成后,立即将运算结果发送给负责此次查询的结点$QM_i$
 \end{itemize}
 \end{document}
