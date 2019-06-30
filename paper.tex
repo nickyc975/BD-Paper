@@ -136,7 +136,7 @@ MC-R树是一种分布式的多维数据索引结构，它将物理计算节点�
 
     \item[2.] 查询首先发送给Master，Master再将查询发送给相关的Client，同时记录下查询被发给了哪些Client；
     
-    \item[3.] 每个Client收到查询后，找到出本区域内与查询区域相交的所有叶节点，对于每个叶节点，按照以下算法求出其中的位于查询区域内的关键字及其出现次数并返回给Master：
+    \item[3.] 每个Client收到查询后，找到出本区域内与查询区域相交的所有叶节点，对于每个叶节点，按照以下算法求出其中的位于查询区域内的关键字及其出现次数并返回给Master：\\\\\\\\\\\\\\\\\\\\
     
               \begin{algorithm}
 
@@ -215,7 +215,7 @@ QueryManagers是一组用于管理用户查询的计算节点，每一个QueryMa
 
 Aggregators是一组专门负责聚集Client查询结果的计算节点。每一个Aggregator负责一些关键字的聚集，它从Client处接收\verb|<t, freq>|键值对，然后对所有Client发给它的键值对进行聚集，并将聚集结果的top-k发送给相应的QueryManager。
 
-\noindent 每个Aggregator维护着一系列形如\verb|<query_id, entries>|的键值对，其键为查询id，值为一系列形如\verb|<t, freq>|的键值对，表示在该查询中关键字t出现的次数。Client按照相同的格式发送查询结果给Aggregator，Aggregator按照如下算法进行聚集：
+\noindent 每个Aggregator维护着一系列形如\verb|<query_id, entries>|的键值对，其键为查询id，值为一系列形如\verb|<t, freq>|的键值对，表示在该查询中关键字t出现的次数。Client按照相同的格式发送查询结果给Aggregator，Aggregator按照如下算法进行聚集：\\\\\\\\\\\\\\\\\\\\\\\\
 
 \begin{algorithm}
 
